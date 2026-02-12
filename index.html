@@ -154,10 +154,15 @@ class XVM8S {
   }
 
   read16() {
-    const lo = this.mem[this.PC++];
-    const hi = this.mem[this.PC++];
-    return lo | (hi << 8);
-  }
+  const lo = this.mem[this.PC & 0xFFFF];
+  this.PC = (this.PC + 1) & 0xFFFF;
+
+  const hi = this.mem[this.PC & 0xFFFF];
+  this.PC = (this.PC + 1) & 0xFFFF;
+
+  return (lo | (hi << 8)) & 0xFFFF;
+}
+
 
   setZ(v) {
     if((v & 0xFF) === 0) this.F |= 1;
@@ -165,9 +170,24 @@ class XVM8S {
   }
 
   step() {
-    if(this.halted) return;
+   if (this.halted) return;
 
-    const op = this.mem[this.PC++];
+  if (this.PC < 0 || this.PC > 0xFFFF) {
+    console.error("PC out of range:", this.PC);
+    this.halted = true;
+    return;
+  }
+
+  const op = this.mem[this.PC];
+
+  if (op === undefined) {
+    console.error("Invalid memory read at", this.PC);
+    this.halted = true;
+    return;
+  }
+this.PC++;
+
+    
 
     switch(op) {
       case 0x00: break; // NOP
@@ -222,9 +242,11 @@ class XVM8S {
         break;
 
       default:
-        console.error("Unknown opcode:", op.toString(16));
+        console.error("Unknown opcode:", op);
         this.halted = true;
     }
+    this.PC &= 0xFFFF;
+
   }
 
   rgb332(v){
