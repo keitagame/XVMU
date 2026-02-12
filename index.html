@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <title>NES</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <link rel="icon" href="nes.png" type="image/png">
+    <style>
+       :root {
+        color-scheme: light dark;
+      }
+      @font-face {
+  font-family: "Renner";
+  src: url("./Renner.ttf") format("truetype");
+  font-display: swap;
+ 
+}
+      body {
+        background:rgb(0, 0, 0);
+       font-family: "Renner", sans-serif;
+        margin: 0;
+        padding:0;
+      }
+h1{
+font-weight:300;
+font-size:25px;
+}
+      header {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        margin-bottom: 12px;
+      }
+      canvas{
+        
+        height: 100%;              /* コンテナ幅に合わせる */
+      aspect-ratio: 256 / 240;  /* 内部解像度の比率を維持 */
+        image-rendering: pixelated;
+        border: 1px solid #000000;
+        background: #000;
+      }
+      .row {
+        padding-top:0px;
+height:83vh;
+justify-content: center; 
+        display: flex;
+        gap: 12px;
+        align-items: center;
+      }
+      .mono {
+       font-size:20px; 
+      }
+      small {
+        opacity: 0.7;
+      }
+      
+button{
+font-family: "Renner", sans-serif;
+padding:10px;
+background:rgb(0, 0, 0);
+color:rgb(255, 255, 255);
+border:1px solid rgb(255, 255, 255);
+}
+.file-input {
+  display: none; /* 本体は隠す */
+}
+
+.file-label {
+  display: inline-block;
+  padding: 10px 16px;
+  background: #000000;
+  color: white;
+    border:1px solid white;
+  border-radius: 0px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background 0.2s;
+}
+
+
+
+    </style>
+  </head>
+  <body>
+   
+    <header>
+<h1>XVM-8</h1>
+     
+<label class="file-label">
+  Select
+  <input id="rom" type="file" class="file-input">
+</label>
+
+<span id="file-name"></span>
+
+      
+      <button id="fullscreenBtn">Fullscreen</button>
+
+      <button id="start">Start</button>
+      <div class="mono" id="status" style="display:none">No ROM</div>
+      <div><span class="mono">CPU PC:</span> <span id="pc" class="mono">0x0000</span></div>
+    </header>
+    <div class="row">
+      <canvas id="screen" width="128" height="128"></canvas>
+      <div>
+        <div><b>FPS:</b> <span id="fps">0</span></div>
+        <div><b>CPU PC:</b> <span id="pc" class="mono">0x0000</span></div>
+        <div><b>Cycles:</b> <span id="cyc" class="mono">0</span></div>
+        <div><b>A:</b> <span id="reg-a" class="mono">0x00</span></div>
+        <div><b>B:</b> <span id="reg-b" class="mono">0x00</span></div>
+        <div><b>C:</b> <span id="reg-c" class="mono">0x00</span></div>
+        <div><b>D:</b> <span id="reg-d" class="mono">0x00</span></div>
+        <div><b>SP:</b> <span id="reg-sp" class="mono">0x7FFF</span></div>
+        <div><b>Flags:</b> <span id="reg-f" class="mono">0x00</span></div>
+
+        <small
+          >XVM-8 v1.2: 8bit CPU, 64KB address space, 128x128 display</small
+        >
+      </div>
+    </div>
+
+    
+
+    <script type="module">
+      import XVM8 from './xvm8-emulator.js';
+      import { buildMinimalTest } from './rom-builder.js';
+      import { buildBoxDemo, buildStripeDemo } from './advanced-demos.js';
+      
+      const canvas = document.getElementById('screen');
+      const emu = new XVM8(canvas);
+      
+      let currentROM = null;
+      
+      // ファイル選択
+      document.getElementById('rom').addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (file) {
+          document.getElementById('file-name').textContent = file.name;
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            try {
+              const data = new Uint8Array(event.target.result);
+              emu.loadROM(data);
+              currentROM = data;
+              document.getElementById('status').textContent = 'ROM loaded: ' + file.name;
+              document.getElementById('status').style.display = 'block';
+            } catch (err) {
+              alert('ROM load error: ' + err.message);
+            }
+          };
+          reader.readAsArrayBuffer(file);
+        }
+      });
+      
+      // 開始ボタン
+      document.getElementById('start').addEventListener('click', () => {
+        if (emu.running) {
+          emu.stop();
+          document.getElementById('start').textContent = 'Start';
+          document.getElementById('status').textContent = 'Stopped';
+          return;
+        }
+        
+        if (!currentROM && emu.rom[0] === 0) {
+          // デモROMを自動生成
+          console.log('Loading demo ROM...');
+          const demoROM = buildBoxDemo();
+          emu.loadROM(demoROM);
+          currentROM = demoROM;
+          document.getElementById('status').textContent = 'Demo ROM loaded';
+          document.getElementById('status').style.display = 'block';
+        }
+        
+        emu.run();
+        document.getElementById('start').textContent = 'Stop';
+        document.getElementById('status').textContent = 'Running';
+      });
+      
+      // フルスクリーンボタン
+      document.getElementById('fullscreenBtn').addEventListener('click', () => {
+        if (canvas.requestFullscreen) {
+          canvas.requestFullscreen();
+        } else if (canvas.webkitRequestFullscreen) {
+          canvas.webkitRequestFullscreen();
+        }
+      });
+      
+      // デバッグ情報の初期化
+      document.getElementById('fps').textContent = '60.0';
+      document.getElementById('pc').textContent = '0x0000';
+      document.getElementById('cyc').textContent = '0';
+      
+      console.log('XVM-8 Emulator v1.2 initialized');
+      console.log('Controls: Arrow keys, Z=A, X=B');
+      console.log('Press Start to run demo ROM');
+      
+      // デモを自動実行するか聞く
+      setTimeout(() => {
+        if (confirm('Load and run demo ROM automatically?')) {
+          document.getElementById('start').click();
+        }
+      }, 500);
+    </script>
+
+
+  </body>
+</html>
