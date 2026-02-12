@@ -100,106 +100,190 @@ border:1px solid rgb(255, 255, 255);
       <div class="mono" id="status" style="display:none">No ROM</div>
       <div><span class="mono">CPU PC:</span> <span id="pc" class="mono">0x0000</span></div>
     </header>
-    <div class="row">
+ <div class="row">
       <canvas id="screen" width="128" height="128"></canvas>
-      <div>
-        <div><b>FPS:</b> <span id="fps">0</span></div>
-        <div><b>CPU PC:</b> <span id="pc" class="mono">0x0000</span></div>
-        <div><b>Cycles:</b> <span id="cyc" class="mono">0</span></div>
-        <div><b>A:</b> <span id="reg-a" class="mono">0x00</span></div>
-        <div><b>B:</b> <span id="reg-b" class="mono">0x00</span></div>
-        <div><b>C:</b> <span id="reg-c" class="mono">0x00</span></div>
-        <div><b>D:</b> <span id="reg-d" class="mono">0x00</span></div>
-        <div><b>SP:</b> <span id="reg-sp" class="mono">0x7FFF</span></div>
-        <div><b>Flags:</b> <span id="reg-f" class="mono">0x00</span></div>
-
-        <small
-          >XVM-8 v1.2: 8bit CPU, 64KB address space, 128x128 display</small
-        >
-      </div>
+      
     </div>
 
     
 
-    <script type="module">
-      import XVM8 from './xvm8-emulator.js';
-      import { buildMinimalTest } from './rom-builder.js';
-      import { buildBoxDemo, buildStripeDemo } from './advanced-demos.js';
-      
-      const canvas = document.getElementById('screen');
-      const emu = new XVM8(canvas);
-      
-      let currentROM = null;
-      
-      // ファイル選択
-      document.getElementById('rom').addEventListener('change', (e) => {
-        const file = e.target.files[0];
-        if (file) {
-          document.getElementById('file-name').textContent = file.name;
-          const reader = new FileReader();
-          reader.onload = (event) => {
-            try {
-              const data = new Uint8Array(event.target.result);
-              emu.loadROM(data);
-              currentROM = data;
-              document.getElementById('status').textContent = 'ROM loaded: ' + file.name;
-              document.getElementById('status').style.display = 'block';
-            } catch (err) {
-              alert('ROM load error: ' + err.message);
-            }
-          };
-          reader.readAsArrayBuffer(file);
-        }
-      });
-      
-      // 開始ボタン
-      document.getElementById('start').addEventListener('click', () => {
-        if (emu.running) {
-          emu.stop();
-          document.getElementById('start').textContent = 'Start';
-          document.getElementById('status').textContent = 'Stopped';
-          return;
-        }
-        
-        if (!currentROM && emu.rom[0] === 0) {
-          // デモROMを自動生成
-          console.log('Loading demo ROM...');
-          const demoROM = buildBoxDemo();
-          emu.loadROM(demoROM);
-          currentROM = demoROM;
-          document.getElementById('status').textContent = 'Demo ROM loaded';
-          document.getElementById('status').style.display = 'block';
-        }
-        
-        emu.run();
-        document.getElementById('start').textContent = 'Stop';
-        document.getElementById('status').textContent = 'Running';
-      });
-      
-      // フルスクリーンボタン
-      document.getElementById('fullscreenBtn').addEventListener('click', () => {
-        if (canvas.requestFullscreen) {
-          canvas.requestFullscreen();
-        } else if (canvas.webkitRequestFullscreen) {
-          canvas.webkitRequestFullscreen();
-        }
-      });
-      
-      // デバッグ情報の初期化
-      document.getElementById('fps').textContent = '60.0';
-      document.getElementById('pc').textContent = '0x0000';
-      document.getElementById('cyc').textContent = '0';
-      
-      console.log('XVM-8 Emulator v1.2 initialized');
-      console.log('Controls: Arrow keys, Z=A, X=B');
-      console.log('Press Start to run demo ROM');
-      
-      // デモを自動実行するか聞く
-      setTimeout(() => {
-        if (confirm('Load and run demo ROM automatically?')) {
-          document.getElementById('start').click();
-        }
-      }, 500);
+    <script>
+     
+class XVM8S {
+  constructor() {
+    this.mem = new Uint8Array(0x10000);
+
+    // Registers
+    this.A = 0;
+    this.B = 0;
+    this.X = 0;
+    this.PC = 0xE000;
+    this.F = 0; // bit0 = Zero
+
+    this.halted = false;
+
+    this.canvas = document.getElementById("screen");
+    this.ctx = this.canvas.getContext("2d");
+    this.imageData = this.ctx.createImageData(128,128);
+
+    this.resetPalette();
+  }
+
+  reset() {
+    this.A = this.B = this.X = 0;
+    this.F = 0;
+    this.PC = 0xE000;
+    this.halted = false;
+  }
+
+  resetPalette() {
+    const defaults = [
+      0x00,0xFF,0xE0,0x1C,0x03,0xFC,0xE3,0x1F,
+      0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00
+    ];
+    for(let i=0;i<16;i++){
+      this.mem[0xC000+i] = defaults[i];
+    }
+  }
+
+  loadROM(buffer) {
+    const rom = new Uint8Array(buffer);
+    for(let i=0;i<rom.length;i++){
+      this.mem[0xE000+i] = rom[i];
+    }
+  }
+
+  read16() {
+    const lo = this.mem[this.PC++];
+    const hi = this.mem[this.PC++];
+    return lo | (hi << 8);
+  }
+
+  setZ(v) {
+    if((v & 0xFF) === 0) this.F |= 1;
+    else this.F &= ~1;
+  }
+
+  step() {
+    if(this.halted) return;
+
+    const op = this.mem[this.PC++];
+
+    switch(op) {
+      case 0x00: break; // NOP
+
+      case 0x01: this.A = this.mem[this.PC++]; this.setZ(this.A); break;
+      case 0x02: this.B = this.mem[this.PC++]; this.setZ(this.B); break;
+      case 0x03: this.X = this.mem[this.PC++]; this.setZ(this.X); break;
+
+      case 0x04: {
+        const addr = this.read16();
+        this.A = this.mem[addr];
+        this.setZ(this.A);
+        break;
+      }
+
+      case 0x05: {
+        const addr = this.read16();
+        this.mem[addr] = this.A;
+        break;
+      }
+
+      case 0x10: this.A = this.B; this.setZ(this.A); break;
+      case 0x11: this.B = this.A; this.setZ(this.B); break;
+      case 0x12: this.A = this.X; this.setZ(this.A); break;
+      case 0x13: this.X = this.A; this.setZ(this.X); break;
+
+      case 0x20:
+        this.A = (this.A + this.B) & 0xFF;
+        this.setZ(this.A);
+        break;
+
+      case 0x25: this.A = (this.A+1)&0xFF; this.setZ(this.A); break;
+      case 0x26: this.B = (this.B+1)&0xFF; this.setZ(this.B); break;
+      case 0x27: this.X = (this.X+1)&0xFF; this.setZ(this.X); break;
+
+      case 0x30: this.PC = this.read16(); break;
+
+      case 0x31: {
+        const addr = this.read16();
+        if(this.F & 1) this.PC = addr;
+        break;
+      }
+
+      case 0x32: {
+        const addr = this.read16();
+        if(!(this.F & 1)) this.PC = addr;
+        break;
+      }
+
+      case 0xFF:
+        this.halted = true;
+        break;
+
+      default:
+        console.error("Unknown opcode:", op.toString(16));
+        this.halted = true;
+    }
+  }
+
+  rgb332(v){
+    const r = ((v >> 5)&7) * 36;
+    const g = ((v >> 2)&7) * 36;
+    const b = (v & 3) * 85;
+    return [r,g,b];
+  }
+
+  render() {
+    const data = this.imageData.data;
+
+    for(let y=0;y<128;y++){
+      for(let x=0;x<128;x++){
+        const colIndex = this.mem[0x8000 + y*128 + x] & 0xF;
+        const rgb = this.rgb332(this.mem[0xC000+colIndex]);
+        const i = (y*128+x)*4;
+        data[i] = rgb[0];
+        data[i+1] = rgb[1];
+        data[i+2] = rgb[2];
+        data[i+3] = 255;
+      }
+    }
+
+    this.ctx.putImageData(this.imageData,0,0);
+  }
+}
+
+const vm = new XVM8S();
+
+document.getElementById("rom").addEventListener("change", e=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  document.getElementById("file-name").textContent = file.name;
+  const reader = new FileReader();
+  reader.onload = () => {
+    vm.loadROM(reader.result);
+    vm.reset();
+    document.getElementById("status").style.display="block";
+    document.getElementById("status").textContent="ROM Loaded";
+  };
+  reader.readAsArrayBuffer(file);
+});
+
+document.getElementById("start").onclick = ()=>{
+  function loop(){
+    for(let i=0;i<2000;i++) vm.step();
+    vm.render();
+    document.getElementById("pc").textContent = "0x"+vm.PC.toString(16).padStart(4,"0");
+    requestAnimationFrame(loop);
+  }
+  loop();
+};
+
+document.getElementById("fullscreenBtn").onclick = ()=>{
+  document.body.requestFullscreen();
+};
+
+
     </script>
 
 
